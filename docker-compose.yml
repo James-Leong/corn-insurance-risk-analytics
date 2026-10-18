@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    image: corn-insurance-backend:latest
+    pull_policy: never
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_PROVIDER: ${DATA_PROVIDER:-mock}
+      UQER_TOKEN: ${UQER_TOKEN:-}
+      CORS_ORIGINS: http://localhost:5173,http://frontend:8080
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "8000:8000"
+  frontend:
+    build: ./frontend
+    image: corn-insurance-frontend:latest
+    pull_policy: never
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:8080"

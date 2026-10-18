@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+.venv/
+venv/
+node_modules/
+dist/
+.pytest_cache/
+.DS_Store
+
+# 文档
+docs/reference/
