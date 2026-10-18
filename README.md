@@ -15,7 +15,7 @@ Python 使用 3.12（与后端镜像一致），先验证解释器版本，再�
 
 后端代码提交前，在 `backend` 目录运行 `uv run --extra dev ruff format app tests` 格式化代码，并运行 `uv run --extra dev ruff check app tests` 检查 lint 规则。
 
-GitHub Actions 会在每次 push 和 Pull Request 上运行相同的 Ruff 格式与 lint 检查。要阻止未通过检查的变更合入受保护分支，请在仓库 **Settings → Rules → Rulesets**（或 **Branches**）中为目标分支启用 Pull Request 与 required status check，并选择 **Backend Ruff / Ruff**。该检查在首次运行前不会出现在可选检查列表中。
+提交代码时，请从最新的 `main` 创建自己的开发分支。修改后，在 `backend` 目录运行 Ruff 格式化和 lint 检查，通过后提交并推送分支，再创建目标为 `main` 的 Pull Request。GitHub Actions 会自动运行 Ruff 检查；若检查失败，请修复问题并再次推送。检查通过且完成 review 后再合入。
 
 ## 容器：独立构建和启动
 
