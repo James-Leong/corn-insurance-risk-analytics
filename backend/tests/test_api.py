@@ -7,7 +7,7 @@ client = TestClient(app)
 def test_demo_endpoints_are_wired():
     assert client.get("/api/v1/health").json()["status"] == "ok"
     dashboard = client.get("/api/v1/dashboard").json()
-    assert dashboard["data_provider"] in {"mock", "mock_fallback", "uqer"}
+    assert dashboard["data_provider"] in {"mock", "mock_fallback", "uqer", "parquet"}
     assert client.get("/api/v1/market/corn").status_code == 200
 
 

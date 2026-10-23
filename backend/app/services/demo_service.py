@@ -16,7 +16,9 @@ class DemoService:
             "daily_change": round(prices[-1] - prices[-2], 2),
             "volatility_proxy": round(max(prices[-20:]) - min(prices[-20:]), 2),
             "forecast_horizon_days": len(data["forecast"]),
-            "forecast_method": "14日移动均值 + 趋势外推（基线）",
+            "forecast_method": "14日历史均值（情景参照）"
+            if data["provider"] == "parquet"
+            else "14日移动均值 + 趋势外推（基线）",
             "risk_note": "预测仅供情景讨论；保险赔付须依据合同结算价和条款。",
         }
 

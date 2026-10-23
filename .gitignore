@@ -10,6 +10,8 @@ node_modules/
 dist/
 .pytest_cache/
 .DS_Store
+var/
+*.parquet
 
 # 文档
 docs/reference/

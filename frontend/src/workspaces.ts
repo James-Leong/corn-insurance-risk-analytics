@@ -1,5 +1,5 @@
 export type Role = 'farmer' | 'cooperative' | 'insurer' | 'authority'
-export type Page = 'overview' | 'records' | 'market' | 'scenario'
+export type Page = 'overview' | 'records' | 'market' | 'scenario' | 'comparison' | 'analysis'
 
 export const workspaces = {
   farmer: {
@@ -14,7 +14,7 @@ export const workspaces = {
   },
   insurer: {
     label: '保险机构', title: '承保与理赔管理', description: '管理项目保单、审核理赔与赔款支付，跟踪保费及对冲资金。',
-    overview: '承保分析', scenario: '赔付压力测试', action: '调整压力测试', quantity: '情景承保数量',
+    overview: '承保分析', scenario: '合同赔付试算', action: '调整赔付试算', quantity: '情景承保数量',
     initial: { insured_tons: 1000, guarantee_price: 2600, settlement_price: 2450, deductible_per_ton: 0, payout_cap: 200000 },
   },
   authority: {

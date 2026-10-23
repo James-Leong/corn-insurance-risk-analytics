@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { business, storageState, demoDate, projectSummary, advanceClaim, enrollMember, resetDemo, type Policy } from '../mockBusiness'
 import type { Role } from '../workspaces'
 const props = defineProps<{ role: Role; records: boolean }>()
-const emit = defineEmits<{ navigate: []; scenario: [policy: Policy] }>()
+const emit = defineEmits<{ navigate: []; scenario: [policy: Policy]; comparison: [] }>()
 const search = ref('')
 const region = ref('全部')
 const status = ref('全部')
@@ -119,10 +119,11 @@ function exportCsv() {
 
 <template>
   <div class="business-workspace">
-    <div class="mock-notice"><div><strong>业务演示数据 · Mock</strong><p>统计截至 {{ demoDate }} · {{ role==='farmer'?'当前农户：演示农户 001':role==='cooperative'?'当前组织：示范合作社 A':'本季示范项目' }} · 操作仅保存在本机浏览器</p></div><button class="select-btn" @click="confirmingReset=true">重置演示</button></div>
+    <section v-if="role === 'insurer' && !records" class="panel market-summary"><div><h2>历史合同赔付风险评估</h2></div><button class="select-btn" @click="emit('comparison')">打开模型评估</button></section>
+    <div class="mock-notice"><div><strong>模拟业务数据</strong><p>统计截至 {{ demoDate }} · {{ role==='farmer'?'当前农户：演示农户 001':role==='cooperative'?'当前组织：示范合作社 A':'本季示范项目' }} · 操作仅保存在本机浏览器</p></div><button class="select-btn" @click="confirmingReset=true">重置演示</button></div>
     <div v-if="confirmingReset" class="inline-confirm" role="alert"><span>恢复全部角色的初始保单、理赔和补贴数据？</span><button class="primary-btn" @click="reset">确认重置</button><button class="select-btn" @click="confirmingReset=false">取消</button></div>
     <p v-if="message" class="action-message" role="status">{{ message }}</p><p v-if="storageState.warning" role="alert">{{ storageState.warning }}</p>
-    <div v-if="role==='authority'||role==='insurer'" class="business-toolbar"><label>地区范围<select v-model="region"><option>全部</option><option v-for="p in visibleProjects" :key="p.id">{{ p.region }}</option></select></label><span class="business-note">首页指标与台账按地区同步筛选</span></div>
+    <div v-if="role==='authority'||role==='insurer'" class="business-toolbar"><label>地区范围<select v-model="region"><option>全部</option><option v-for="p in visibleProjects" :key="p.id">{{ p.region }}</option></select></label></div>
     <section v-if="!records" class="metrics-grid" aria-label="业务统计"><article v-for="stat in stats" :key="stat.label" class="metric-card"><div class="metric-label">{{ stat.label }}</div><div class="metric-value">{{ stat.value }}<small>{{ stat.unit }}</small></div><div class="metric-foot">{{ stat.note }}</div></article></section>
 
     <section v-if="!records" class="content-grid">
@@ -158,8 +159,9 @@ function exportCsv() {
       <article v-for="p in detailPolicies" :key="p.id" class="policy-detail"><h3>{{ p.id }} · {{ business.members.find(m=>m.id===p.memberId)?.name }}</h3><dl class="business-list"><div><dt>保障数量 / 保障目标价</dt><dd>{{ number(p.tons) }} 吨 / {{ number(p.guarantee) }} 元/吨</dd></div><div><dt>免赔额 / 赔付上限</dt><dd>{{ number(p.deductible) }} 元/吨 / {{ number(p.cap) }} 元</dd></div><div><dt>合同约定结算期</dt><dd>{{ p.start }} 至 {{ p.end }}</dd></div><div><dt>结算价格</dt><dd>{{ p.status==='已结算'?`${number(p.settlement)} 元/吨`:'尚未到期结算' }}</dd></div><div><dt>结算应赔 / 理赔状态</dt><dd>{{ number(p.payout) }} 元 / {{ p.claim }}</dd></div></dl>
         <ol class="claim-steps" aria-label="理赔流程"><li v-for="(step,index) in ['未申请','待审核','待支付','已支付']" :key="step" :class="{done:index<=['未申请','待审核','待支付','已支付'].indexOf(p.claim)}">{{ step }}</li></ol>
         <div class="detail-buttons"><button v-if="role==='farmer'&&p.claim==='未申请'&&p.status==='已结算'&&p.payout>0" class="primary-btn" @click="act(p)">提交模拟理赔申请</button><button v-if="role==='insurer'&&p.claim==='待审核'" class="primary-btn" @click="act(p)">模拟审核通过</button><button v-if="role==='insurer'&&p.claim==='待支付'" class="primary-btn" @click="act(p)">模拟支付赔款</button><button v-if="role!=='authority'" class="select-btn" @click="emit('scenario',p)">带入保障试算</button></div>
+        <p v-if="role === 'insurer'" class="business-note">合同资料待完善：缺少具体期货合约、采价字段、完整观察日和条款版本，暂不提供本保单模型预测。<button class="text-btn" @click="emit('comparison')">查看独立研究案例</button></p>
       </article>
-      <p class="business-note">{{ role==='authority'?'项目赔付来自逐份保单汇总，补贴拨付与保险赔付分账统计。':'理赔申请、审核与支付均为模拟流程，切换角色后可继续办理并查看结果。' }}</p>
+
     </section>
   </div>
 </template>

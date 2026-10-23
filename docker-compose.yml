@@ -7,9 +7,18 @@ services:
       - path: .env
         required: false
     environment:
-      DATA_PROVIDER: ${DATA_PROVIDER:-mock}
-      UQER_TOKEN: ${UQER_TOKEN:-}
+      DATA_PROVIDER: ${DATA_PROVIDER:-auto}
+      MARKET_CACHE_DIR: /data/market
+      MARKET_TICKER: ${MARKET_TICKER:-c2701}
+      DATA_START_DATE: "2025-12-31"
+      DATA_END_DATE: "2026-10-23"
+      COMPARISON_STORE_DIR: /data/comparison
+      MODEL_STORE_DIR: /data/models
+      PRICE_STORE_DIR: /data/price
+      COMPARISON_DATA_MODE: measured
       CORS_ORIGINS: http://localhost:5173,http://frontend:8080
+    volumes:
+      - ${DEMO_DATA_DIR:-./var}:/data:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
       interval: 10s

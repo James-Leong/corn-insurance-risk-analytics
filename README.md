@@ -1,12 +1,12 @@
 # 玉米价格预测与农业保险风险分析 Demo
 
-面向课程投标汇报的单仓库原型：用玉米期货行情做价格基线，连接保险赔付情景，并支持农户、合作社、保险机构和农业管理部门视角。当前默认确定性模拟行情并明确标识；配置 UQER 后尝试真实行情，SDK/API 不可用则返回有标记的模拟兜底数据。
+面向课程投标汇报的单仓库原型：支持四类业务视角、价格险规则试算和保险机构的多方法评估。真实行情从本地Parquet快照读取，模型比较从离线生成的结果包读取；网页请求不调用UQER或训练模型。当前数据范围固定为2025-12-31至2026-10-23。无快照时auto模式明确展示模拟行情；已配置但损坏的快照报错，不自动降级。
 
 ## 本地开发
 
 ```bash
 cd backend
-uv sync --extra dev
+uv sync --extra dev --extra inference
 source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
@@ -43,19 +43,19 @@ docker load -i corn-insurance-images.tar
 docker compose up -d --no-build
 ```
 
-部署环境需要安装 Docker Compose，并准备运行所需的 `.env`（例如 `UQER_TOKEN`）。`pull_policy: never` 让 Compose 使用本机已导入的镜像，不尝试从镜像仓库拉取。构建环境和部署环境的 CPU 架构需兼容；例如 ARM 镜像不能直接在常见的 x86_64 环境运行。
+部署环境需要Docker Compose和数据目录：将`var/market`、`var/comparison`、`var/models`及`var/price`一起复制到服务器，或解压最新演示数据包。Compose默认以只读方式挂载`./var:/data`，无需UQER token。也可用`DEMO_DATA_DIR`指定目录。`pull_policy: never`使用本地已导入镜像；构建与部署的CPU架构需兼容。完整步骤见[离线数据与部署](docs/demo-next/离线数据与部署.md)。
 
 ## VS Code 一键本地启动
 
-1. 在项目根目录准备 `.env`（首次可复制 `.env.example`），令牌只写在 `.env` 的 `UQER_TOKEN` 中；`.env` 已被 Git 忽略。
-2. 按上面的本地开发步骤使用 `uv sync --extra dev` 创建 `backend/.venv` 并安装依赖；在 `frontend` 执行 `npm install`。
+1. 在项目根目录准备`.env`（首次可复制`.env.example`），已有数据使用`DATA_PROVIDER=parquet`，无数据可用`auto`。网页运行不需要令牌；`.env`已被Git忽略。
+2. 按上面的本地开发步骤使用 `uv sync --extra dev --extra inference` 创建 `backend/.venv` 并安装依赖；在 `frontend` 的Node22环境执行 `npm ci`。
 3. 用 VS Code 打开项目根目录，安装 Python/Python Debugger 扩展；在“运行和调试”选择 **Corn Risk Demo: Local Development**，按 F5 同时启动前后端。
 
 前端：`http://127.0.0.1:5173`；后端：`http://127.0.0.1:8000/docs`。调试配置从根目录 `.env` 注入后端环境变量；不要把 `.env` 提交到 Git。
 
-## 可选 UQER
+## 离线 UQER 与 Parquet
 
-复制 `.env.example` 为 `.env` 并配置 `DATA_PROVIDER=uqer`、`UQER_TOKEN`。在有权访问 UQER SDK 的环境中执行 `uv sync --extra uqer` 安装可选依赖；适配器使用 UQER SDK 的公开调用方式：`uqer.Client(token=...)` 后调用 `DataAPI.MktFutdGet(..., exchangeCD="XDCE", contractObject="c", pandas="1")`。密钥仅通过环境变量传入，严禁提交、打入镜像或记录日志。无法访问 SDK 时 Demo 会使用标注后的 mock 数据。
+UQER仅用于显式离线取数命令`python -m research.ingest`，按请求身份缓存Parquet与SHA256校验信息；已缓存请求不再调用SDK，`--offline`模式可在无token环境重新整理快照。行情使用具体合约的`settlePrice`，不拼接连续合约或以收盘价替代。研究命令`python -m research.run`仅消费快照。以上命令均在已验证的Python3.12虚拟环境运行，安装及完整路径见[离线数据与部署](docs/demo-next/离线数据与部署.md)。旧`DATA_PROVIDER=uqer`仅兼容映射到缓存读取，不再在线取数。
 
 ## Demo 路径与业务边界
 
@@ -64,6 +64,8 @@ docker compose up -d --no-build
 3. 台账支持搜索、状态/地区筛选、详情和 CSV 导出。模拟操作保存在本机浏览器，刷新保留，可确认重置。
 4. 从保单详情带入试算，或在独立试算页调整保障价、情景价、免赔额、数量与上限；各角色分别保留会话输入，试算不修改台账。
 5. 行情和参考估计位于辅助页面。农业管理部门首页以覆盖率、补贴执行、赔付兑现及项目跟进为核心。
+6. 保险机构“模型评估”提供固定历史合同、三方法对照、验证报告及JSON/CSV导出。研究标签来自历史结算价与规则，不是真实赔案；当前不足一年数据，仅作研究，不宣布生产模型或已验证P90。
+7. 保险机构“玉米行情”支持合约切换及20日平均结算价预测；点击“带入客户风险分析”进入研究合同、风险与压力、业务判断、承保方案、赔付试算、分析报告六步向导。业务人员记录参考方法、风险限额和判断依据，接受后确认方案并按同一组条款试算；调整或拒绝承保分别进入对应分支。保存的模型在可信只读挂载目录中校验后加载，网页不训练、不取外部数据。未来价格参照与历史合同回放的日期明确分开。
 
 角色切换仅为演示，不构成身份认证或数据权限隔离。
 
@@ -74,6 +76,8 @@ docker compose up -d --no-build
 - `backend/app/api`: HTTP 路由与请求 schema
 - `backend/app/domain`: 不依赖框架的保险领域计算
 - `backend/app/services`: 用例编排
-- `backend/app/adapters`: UQER 和模拟数据适配层
+- `backend/app/adapters`: Parquet快照和显式模拟行情适配层
+- `backend/app/repositories`: 校验后读取行情快照和不可变比较报告
+- `backend/research`: 离线取数、标签、时间切分、训练、评价与发布
 - `frontend`: Vue 3 + TypeScript + Vite 单页应用
 - `docs`: 系统架构和后续迭代路线
