@@ -8,8 +8,8 @@ const page = await context.newPage()
 const errors = []
 page.on('pageerror', e => errors.push(e.message))
 const role = value => page.locator('.role-picker select').selectOption(value)
-const overview = () => page.locator('nav button').first().click()
-const records = () => page.locator('nav button').nth(1).click()
+const overview = () => page.locator('nav').getByRole('button',{name:/^(我的保障|保障统筹|承保分析|政策落实总览)$/}).click()
+const records = () => page.locator('nav').getByRole('button',{name:/^(我的保单|成员台账|承保与理赔|区域项目)$/}).click()
 const detail = page.getByRole('region', { name: '业务详情' })
 const tableRow = id => page.locator('.business-table tbody tr').filter({ hasText: id })
 async function stat(label, value) {
@@ -37,6 +37,7 @@ try {
   assert((await tableRow('POL-001').innerText()).includes('待审核'))
 
   await role('insurer')
+  await overview()
   await stat('待审核案件','3')
   await records()
   await tableRow('POL-001').getByRole('button',{name:'查看详情'}).click()
@@ -102,33 +103,15 @@ try {
   assert.equal(await page.locator('.business-table tbody tr button').count(),0)
   await page.getByLabel('台账状态',{exact:true}).selectOption('全部')
 
-  // Calendar-day forecasts carry explicit dates; trading-day horizons must not
-  // infer dates from weekdays or the browser's local timezone.
-  let timeUnit = 'calendar_day'
-  const dates = ['2028-02-29','2028-03-01','2028-03-02','2028-03-03','2028-03-04','2028-03-05','2028-03-06']
-  await page.route('**/market/corn', route=>route.fulfill({json:{
-    symbol:'测试行情',unit:'元/吨',provider:timeUnit==='calendar_day'?'mock':'uqer',warning:'',
-    series:[{date:'2028-02-28',price:2400}],
-    forecast_time_unit:timeUnit || undefined,
-    forecast:dates.map((date,i)=>({step:i+1,...(timeUnit==='calendar_day'?{date}:{}),price:2400+i,lower:2380,upper:2420})),
-  }}))
+  // Price references use one 20-trading-day mean target, without invented daily dates.
+  await page.route('**/prices/overview?*', route=>route.fulfill({json:{ticker:'c2701',as_of:'2026-10-23',latest_settlement:2212,last_trade_date:'2027-01-15',tickers:[{ticker:'c2701',last_trade_date:'2027-01-15'}],series:[{date:'2026-10-22',settlement:2200},{date:'2026-10-23',settlement:2212}],forecast:{status:'available',horizon_trading_days:20,methods:[{method_id:'price_last',value:2212},{method_id:'price_ma20',value:2204.8},{method_id:'price_ridge',value:2187.77}]},validation:{sample_count:0,date_count:0,methods:[],backtest:[]},warnings:[]}}))
   await page.reload()
   await page.getByRole('button',{name:'玉米行情',exact:true}).click()
-  await page.locator('.forecast-card').first().getByText('2028-02-29',{exact:true}).waitFor()
-  assert((await page.locator('.forecast-card').nth(1).innerText()).includes('2028-03-01'))
-  assert((await page.locator('.forecast-time-note').innerText()).includes('包含周末和节假日'))
-  timeUnit='trading_day'
-  await page.reload()
-  await page.getByRole('button',{name:'玉米行情',exact:true}).click()
-  await page.locator('.forecast-card').first().getByText('1 个交易日后',{exact:true}).waitFor()
-  assert((await page.locator('.forecast-card').last().innerText()).includes('7 个交易日后'))
-  assert.equal(await page.locator('.forecast-card').getByText('2028-02-29',{exact:true}).count(),0)
-  timeUnit=''
-  await page.reload()
-  await page.getByRole('button',{name:'玉米行情',exact:true}).click()
-  await page.locator('.forecast-card').first().getByText('预测时间待确认',{exact:true}).waitFor()
-  assert(!(await page.locator('.forecast-grid').innerText()).includes('步估计'))
-  await page.unroute('**/market/corn')
+  await page.getByText('Ridge 价格预测',{exact:true}).waitFor()
+  assert.equal(await page.locator('.price-method-grid article').count(),3)
+  assert((await page.locator('.market-workspace').innerText()).includes('未来 20 个交易日平均结算价'))
+  assert.equal(await page.locator('.forecast-time-note').count(),0)
+  await page.unroute('**/prices/overview?*')
   await page.reload()
 
   // Desktop and narrow layouts, including the record pages and table scrolling.

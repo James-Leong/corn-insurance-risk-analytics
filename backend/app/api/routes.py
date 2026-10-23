@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from app.services.demo_service import DemoService
+from app.repositories.market_cache import MarketCacheError
 
 router = APIRouter(prefix="/api/v1")
 service = DemoService()
@@ -21,12 +22,22 @@ def health() -> dict:
 
 @router.get("/dashboard")
 def dashboard() -> dict:
-    return service.dashboard()
+    try:
+        return service.dashboard()
+    except MarketCacheError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "market_cache_invalid", "message": str(exc)}
+        ) from exc
 
 
 @router.get("/market/corn")
 def market(days: int = Query(default=90, ge=30, le=365)) -> dict:
-    return service.market.get_corn_series(days)
+    try:
+        return service.market.get_corn_series(days)
+    except MarketCacheError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "market_cache_invalid", "message": str(exc)}
+        ) from exc
 
 
 @router.post("/insurance/scenario")

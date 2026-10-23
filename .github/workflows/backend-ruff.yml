@@ -25,10 +25,13 @@ jobs:
           enable-cache: true
 
       - name: Install locked development dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --extra research
 
       - name: Check formatting
-        run: uv run --locked ruff format --check app tests
+        run: uv run --locked --extra dev --extra research ruff format --check app research tests
 
       - name: Check lint rules
-        run: uv run --locked ruff check app tests
+        run: uv run --locked --extra dev --extra research ruff check app research tests
+
+      - name: Test offline data and comparison pipeline
+        run: uv run --locked --extra dev --extra research pytest -q
