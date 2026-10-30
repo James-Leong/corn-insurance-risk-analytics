@@ -1,0 +1,17 @@
+export interface DecisionSource { id: string; name: string; status?: string; source_uri?: string; note?: string; coverage?: string }
+export interface DecisionMetric { id: string; name: string; value: number | null; unit: string; formula?: string; components?: Record<string, unknown>; unavailable_reason?: string }
+export interface MarketCard { ticker: string; name: string; as_of: string | null; settle_price: number | null; close_price: number | null; settle_change: number | null; settle_change_ratio: number | null; volume: number | null; open_interest: number | null; observation_count: number; source_version: string; not_live: boolean; is_product_contract: boolean }
+export interface DecisionContext { market_version?: string; casde_version?: string; data_as_of?: string; market_as_of?: string; casde_published_at?: string; built_at?: string; not_live?: boolean; [key: string]: unknown }
+export interface EnvironmentObservation { id:string;region_code:string;region_name:string;observation_date:string;temperature_c:number;rainfall_mm:number;wind_speed_ms:number;soil_water_content:number;soil_saturation:number;soil_depth_cm:string;growth_stage_name:string;release_id?:string;seed_batch?:string }
+export interface HazardAssessment { id:string;region_code:string;hazard_type:string;hazard_name:string;risk_level:string;probability:number;as_of:string;valid_until:string;model_version:string;recommendation:string }
+export interface DecisionDashboard {
+ schema_version: string; project: { id: string; name: string; region: string }; product: { id: string; name: string; version: string; contract: string; guarantee_price: number; [key:string]:unknown };
+ market: { status: string; default_ticker: string; cards: MarketCard[] };
+ supply_demand: { status: string; marketing_year: string; statistic_status: string; release_id: string; published_at: string; unit: string; original_unit: string; metrics: DecisionMetric[]; source_uri: string };
+ agri_risk: { status: string; risk_level: string|null; probability: number|null; missing_requirements: {id:string;name:string;status:string}[]; sources: DecisionSource[];latest_observation?:EnvironmentObservation;regional_observations?:EnvironmentObservation[];assessments?:HazardAssessment[];all_assessments?:HazardAssessment[] };
+ policy: { status: string; items: PolicyEvent[]; sources: DecisionSource[] };
+ coverage: DecisionSource[]; sources: DecisionSource[]; source_context: DecisionContext; context_only: boolean; not_claim_trigger: boolean; notice: string;
+}
+export interface PolicyEvent { id:string; title?: string; name?: string; published_at?: string; effective_at?:string;source_uri?: string; summary?: string;country_code?:string;category?:string;business_impact?:string;source_name?:string;[key:string]:unknown }
+export interface FutureObservation {date:string;open_price:number|null;high_price:number|null;low_price:number|null;close_price:number|null;settle_price:number|null;settle_change:number|null;settle_change_ratio:number|null;volume:number|null;open_interest:number|null;quality_flag?:string}
+export interface DecisionFutures { ticker:string; default_ticker:string; contract_choices:{ticker:string;name:string;is_product_contract:boolean;first_date:string;last_date:string}[]; history:FutureObservation[]; latest:FutureObservation|null; unit:string; volume_unit:string; source_version:string; as_of:string; not_live:boolean; source_context:DecisionContext; warnings:string[];context_only:boolean;not_claim_trigger:boolean }

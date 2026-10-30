@@ -1,0 +1,45 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { BusinessRecord, Column, SessionUser, Workspace } from './types'
+import { date, fmt, label, tone } from './labels'
+import Icon from './Icon.vue'
+import RecordTable from './RecordTable.vue'
+import { downloadCsv } from './api'
+const props=defineProps<{workspace:Workspace;page:string;user:SessionUser}>()
+const emit=defineEmits<{action:[id:string,record?:BusinessRecord];select:[type:string,record:BusinessRecord];navigate:[page:string]}>()
+const active=computed(()=>props.workspace.policies.filter(x=>x.status==='active'))
+const tons=computed(()=>active.value.reduce((s,r)=>s+Number(r.tons||0),0))
+const allocations=computed(()=>props.workspace.allocations||[])
+const allocated=computed(()=>allocations.value.filter(x=>x.status==='confirmed').reduce((s,r)=>s+Number(r.tons||0),0))
+const confirmed=computed(()=>props.workspace.hedges.reduce((s,r)=>s+Number(r.tons||0),0))
+const reserved=computed(()=>props.workspace.executions.filter(x=>!['confirmed','rejected'].includes(x.status)).reduce((s,r)=>s+Number(r.reserved_tons||0),0))
+const ratio=computed(()=>tons.value?Math.min(100,allocated.value/tons.value*100):0)
+const rows=computed(()=>active.value.map(r=>({...r,matched_tons:allocations.value.filter(a=>a.policy_id===r.id&&a.status==='confirmed').reduce((s,a)=>s+Number(a.tons||0),0)})))
+const pcols:Column[]=[{key:'policy_no',label:'保单责任',secondary:'insured_name',width:'180px'},{key:'contract',label:'指定合约'},{key:'tons',label:'有效责任',format:'tons'},{key:'matched_tons',label:'确认名义匹配',format:'tons'},{key:'guarantee_price',label:'保障价',format:'money'},{key:'version',label:'版本'},{key:'status',label:'状态',format:'status'}]
+const planCols:Column[]=[{key:'name',label:'方案名称',secondary:'id',width:'190px'},{key:'tons',label:'计划数量',format:'tons'},{key:'strike_price',label:'执行价格',format:'money'},{key:'premium_per_ton',label:'权利金/吨',format:'money'},{key:'quote_expires_at',label:'报价有效至',format:'date'},{key:'status',label:'审批状态',format:'status'}]
+const executionCols:Column[]=[{key:'id',label:'执行请求',secondary:'external_no',width:'170px'},{key:'plan_id',label:'批准方案'},{key:'requested_tons',label:'委托数量',format:'tons'},{key:'confirmed_tons',label:'累计确认',format:'tons'},{key:'reserved_tons',label:'仍预占数量',format:'tons'},{key:'status',label:'执行状态',format:'status'}]
+const hedgeCols:Column[]=[{key:'id',label:'对冲合同',secondary:'execution_id',width:'170px'},{key:'tons',label:'已确认名义量',format:'tons'},{key:'strike_price',label:'执行价',format:'money'},{key:'premium_per_ton',label:'权利金/吨',format:'money'},{key:'status',label:'合同状态',format:'status'}]
+const allocationCols:Column[]=[{key:'id',label:'匹配记录',secondary:'hedge_id',width:'170px'},{key:'policy_id',label:'关联保单'},{key:'policy_version',label:'责任版本'},{key:'tons',label:'匹配数量',format:'tons'},{key:'status',label:'复核状态',format:'status'}]
+const exportRows=(name:string,cols:Column[],records:BusinessRecord[])=>downloadCsv(name,cols,records)
+</script>
+<template>
+ <template v-if="page==='portfolio'">
+  <div class="gg-kpis"><article><span>有效保单责任<Icon name="policy" :size="18"/></span><strong>{{ fmt(tons) }}<small>吨</small></strong><p>{{ active.length }} 份有效保单 · 按责任版本归集</p></article><article><span>已确认对冲合同<Icon name="risk" :size="18"/></span><strong>{{ fmt(confirmed) }}<small>吨</small></strong><p>合同总量，不等于已匹配责任</p></article><article><span>已完成名义匹配<Icon name="link" :size="18"/></span><strong>{{ fmt(allocated) }}<small>吨</small></strong><p>仅纳入已确认且有效的分配</p></article><article class="gg-kpi-accent"><span>执行中预占数量<Icon name="clock" :size="18"/></span><strong>{{ fmt(reserved) }}<small>吨</small></strong><p>未知状态继续预占，防止重复使用</p></article></div>
+  <div class="gg-two-columns"><section class="gg-card gg-coverage-panel"><div class="gg-card-heading"><div><h2>责任匹配进度</h2><p>从确认合同下钻到每份保单责任</p></div><button class="gg-text-btn" @click="emit('navigate','arrangements')">办理风险安排<Icon name="arrow" :size="14"/></button></div><div class="gg-coverage-visual"><div class="gg-ring" :style="{background:`conic-gradient(#7274b9 ${ratio}%, #eeedf5 ${ratio}% 100%)`}"><div><strong>{{ fmt(ratio,1) }}<small>%</small></strong><span>名义匹配比例</span></div></div><dl><div><i class="gg-dot"/><dt>有效责任量</dt><dd>{{ fmt(tons) }} 吨</dd></div><div><i class="gg-dot gg-dot-indigo"/><dt>确认匹配量</dt><dd>{{ fmt(allocated) }} 吨</dd></div><div><i class="gg-dot gg-dot-soft"/><dt>未匹配量</dt><dd>{{ fmt(Math.max(0,tons-allocated)) }} 吨</dd></div></dl></div><div class="gg-note"><Icon name="info" :size="16"/><span>相同吨数不代表风险消除；合约、采价窗口、执行价格和期限仍需逐项核对。</span></div></section>
+  <section class="gg-card"><div class="gg-card-heading"><div><h2>风险与资金关注</h2><p>预测、合同确认与实际现金分开查看</p></div><Icon name="warning" :size="20"/></div><div class="gg-risk-item"><span class="gg-risk-icon"><Icon name="risk" :size="18"/></span><div><strong>未匹配责任</strong><small>可进入已确认合同分配责任，或新建方案</small></div><b>{{ fmt(Math.max(0,tons-allocated)) }}<small> 吨</small></b></div><div class="gg-risk-item"><span class="gg-risk-icon"><Icon name="clock" :size="18"/></span><div><strong>交易待确认</strong><small>继续占用责任和预算，优先查单核实</small></div><b>{{ workspace.executions.filter(r=>['processing','unknown','partially_confirmed'].includes(r.status)).length }}<small> 笔</small></b></div><div class="gg-risk-item"><span class="gg-risk-icon"><Icon name="settlement" :size="18"/></span><div><strong>风险转移待回款</strong><small>两类回收分账，不影响客户核定应赔</small></div><b>{{ fmt(workspace.recoveries.reduce((s,r)=>s+Math.max(0,Number(r.confirmed_amount||0)-Number(r.received_amount||0)),0)) }}<small> 元</small></b></div></section></div>
+  <RecordTable title="保单责任与匹配明细" :records="rows" :columns="pcols" @select="emit('select','policy',$event)" @export="exportRows('责任组合',pcols,$event)"/>
+  <RecordTable title="已确认对冲合同" :records="workspace.hedges" :columns="hedgeCols" @select="emit('select','hedge',$event)" @export="exportRows('对冲合同',hedgeCols,$event)"/>
+  <RecordTable v-if="allocations.length" title="责任匹配与批改复核" :records="allocations" :columns="allocationCols" @select="emit('select','allocation',$event)" @export="exportRows('责任匹配',allocationCols,$event)"/>
+ </template>
+ <template v-else-if="page==='arrangements'">
+
+  <div class="gg-context-strip"><span><Icon name="risk" :size="17"/>场外看跌期权 · 当前执行路线</span><p>计划与报价不形成持仓，审批绑定责任和报价版本</p><button v-if="user.role==='operator'" class="gg-btn gg-btn-primary" @click="emit('action','hedge.plan')"><Icon name="plus" :size="16"/>新建对冲方案</button></div>
+  <RecordTable title="对冲方案与报价" :records="workspace.plans" :columns="planCols" @select="emit('select','plan',$event)" @export="exportRows('对冲方案',planCols,$event)"/>
+  <section class="gg-card"><div class="gg-card-heading"><div><span class="gg-overline">风险安排 / 既有再保险</span><h2>已有再保安排与分出</h2><p>本期关联已确认比例安排，保留分出、自留与摊回依据</p></div><span class="gg-chip">不包含通用再保产品创设</span></div><div v-if="!workspace.reinsurance.length" class="gg-empty"><strong>本项目暂无适用再保安排</strong><span>无再保时不生成分出或摊回应收。</span></div><div v-for="record in workspace.reinsurance" :key="record.id" class="gg-reinsurance"><div class="gg-reinsurance-icon"><Icon name="building" :size="25"/></div><div><strong>{{ record.name || record.counterparty || '既有比例再保险安排' }}</strong><small>{{ record.contract_no || record.external_contract_no || record.id }} · {{ record.counterparty || '合同相对方以记录为准' }}</small></div><div class="gg-reinsurance-ratio"><small>约定分出比例</small><strong>{{ fmt(Number(record.ratio||0)*100) }}%</strong></div><span class="gg-badge" :class="`gg-${tone(record.status)}`">{{ label(record.status) }}</span><button class="gg-btn" @click="emit('select','reinsurance',record)">查看 / 关联<Icon name="chevron" :size="14"/></button></div><div v-if="Array.isArray(workspace.reinsurance_allocations) && workspace.reinsurance_allocations.length" class="gg-allocation-list"><div v-for="a in (workspace.reinsurance_allocations as BusinessRecord[])" :key="a.id"><span>{{ a.policy_id }}</span><span>分出 {{ fmt(Number(a.ratio||0)*100) }}%</span><small>{{ a.reference || a.id }}</small><span class="gg-badge" :class="`gg-${tone(a.status)}`">{{ label(a.status) }}</span><button class="gg-text-btn" @click="emit('select','reinsurance_allocation',a)">{{ a.status==='needs_review'?'复核分配':'查看记录' }}<Icon name="chevron" :size="14"/></button></div></div></section>
+ </template>
+ <template v-else>
+  <div class="gg-context-strip"><span><Icon name="clock" :size="17"/>委托受理与成交确认分开</span><p>未知状态先查单；分批确认只按实际数量计入合同</p><span class="gg-badge gg-warning">交易执行</span></div>
+  <RecordTable title="订单执行台账" :records="workspace.executions" :columns="executionCols" empty="暂无执行请求；方案获批后，经办人可提交对冲交易" @select="emit('select','execution',$event)" @export="exportRows('订单执行',executionCols,$event)"/>
+  <section class="gg-card"><div class="gg-card-heading"><div><h2>执行状态说明</h2><p>办理记录与资金预占统一由服务端控制</p></div><Icon name="info" :size="19"/></div><div class="gg-three-notes"><div><span>01</span><strong>先预占，再发送</strong><p>执行前校验责任、数量及预算，避免并发超用。</p></div><div><span>02</span><strong>确认多少，计入多少</strong><p>部分确认仅形成实际合同量，剩余量继续待确认。</p></div><div><span>03</span><strong>未知结果先查单</strong><p>保持原请求和预占，查回外部事实后更新状态。</p></div></div></section>
+ </template>
+</template>

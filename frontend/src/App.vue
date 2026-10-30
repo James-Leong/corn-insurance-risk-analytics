@@ -1,132 +1,127 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import BusinessWorkspace from './components/BusinessWorkspace.vue'
-import ModelComparisonWorkspace from './components/ModelComparisonWorkspace.vue'
-import type { Policy } from './mockBusiness'
-import MarketWorkspace from './components/MarketWorkspace.vue'
-import AnalysisJourney from './components/AnalysisJourney.vue'
-import { api } from './api'
-import { workspaces, type Page, type Role } from './workspaces'
-import type { MarketData, ScenarioResult } from './types/api'
+import { computed, onMounted, ref } from 'vue'
+import './platform.css'
+import Icon from './platform/Icon.vue'
+import BusinessModule from './platform/BusinessModule.vue'
+import RiskModule from './platform/RiskModule.vue'
+import SettlementModule from './platform/SettlementModule.vue'
+import ResearchModule from './platform/ResearchModule.vue'
+import CommandDialog from './platform/CommandDialog.vue'
+import BatchImport from './platform/BatchImport.vue'
+import RecordTable from './platform/RecordTable.vue'
+import ScenarioDialog from './platform/ScenarioDialog.vue'
+import DecisionModule from './platform/DecisionModule.vue'
+import type { BusinessRecord, Column, CommandForm, SessionUser, Workspace } from './platform/types'
+import { actions, commandForm } from './platform/commands'
+import { clearSession, hasSession, platformApi, request } from './platform/api'
+import { date, fmt, label, tone } from './platform/labels'
+type ImportRow = {row:number;valid:boolean;values:Record<string,unknown>;errors:string[]}
 
-const analysisTicker = ref('c2701')
-function startAnalysis(ticker: string) { analysisTicker.value = ticker; page.value = 'analysis' }
-const page = ref<Page>('overview')
-const role = ref<Role>('farmer')
-const active = computed(() => workspaces[role.value])
-const recordLabels = { farmer: '我的保单', cooperative: '成员台账', insurer: '承保与理赔', authority: '区域项目' }
-const overviewActions = { farmer: '查看我的保单', cooperative: '管理成员保障', insurer: '办理承保与理赔', authority: '查看区域项目' }
-const tabs = computed(() => role.value === 'insurer' ? [
-  { id: 'market' as const, label: '玉米行情' },
-  { id: 'analysis' as const, label: '客户风险分析' },
-  { id: 'comparison' as const, label: '模型评估' },
-  { id: 'overview' as const, label: active.value.overview },
-  { id: 'records' as const, label: recordLabels[role.value] },
-  { id: 'scenario' as const, label: active.value.scenario },
-] : [
-  { id: 'overview' as const, label: active.value.overview },
-  { id: 'records' as const, label: recordLabels[role.value] },
-  { id: 'market' as const, label: '玉米行情' },
-  { id: 'scenario' as const, label: active.value.scenario },
-])
-// Each demo role keeps its own hypothetical inputs; switching is not authentication.
-const inputs = ref(Object.fromEntries(Object.entries(workspaces).map(([key, value]) => [key, { ...value.initial }])) as Record<Role, ScenarioInput>)
-type ScenarioInput = Parameters<typeof api.scenario>[0]
-const form = computed(() => inputs.value[role.value])
-const market = ref<MarketData | null>(null)
-const loading = ref(true)
-const loadError = ref('')
-const scenarioError = ref('')
-const calculating = ref(false)
-const result = ref<ScenarioResult | null>(null)
-const stress = ref<{ price: number; payout: number }[]>([])
-let requestId = 0
-const money = (value?: number) => value == null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)
-const latest = computed(() => market.value?.series.at(-1))
-const validation = computed(() => {
-  if (Object.entries(form.value).some(([key, value]) => !(key === 'payout_cap' && value === null) && (typeof value !== 'number' || !Number.isFinite(value) || value < 0))) return '请填写完整的非负数字。'
-  if (form.value.insured_tons > 1000000) return '保障数量不能超过 1,000,000 吨。'
-  if (form.value.guarantee_price > 100000 || form.value.settlement_price > 100000) return '价格不能超过 100,000 元/吨。'
-  return ''
+const modules=[
+ {id:'decision',label:'玉米态势',icon:'grain',subtitle:'市场、农情与业务决策',pages:[{id:'decision',label:'态势总览'},{id:'futures',label:'期货看板'},{id:'agri-risk',label:'农情与政策'}]},
+ {id:'business',label:'投保与保单',icon:'policy',subtitle:'申请、核保与有效责任',pages:[{id:'overview',label:'业务总览'},{id:'applications',label:'投保批次 / 申请'},{id:'policies',label:'保单详情'}]},
+ {id:'research',label:'数据与研究',icon:'research',subtitle:'主题数据与业务量化',pages:[{id:'data',label:'玉米数据浏览'},{id:'experiments',label:'研究实验'},{id:'reports',label:'研究报告'}]},
+ {id:'risk',label:'风险转移与组合',icon:'risk',subtitle:'再保、对冲与责任匹配',pages:[{id:'portfolio',label:'责任组合'},{id:'arrangements',label:'再保 / 对冲安排'},{id:'executions',label:'订单执行'}]},
+ {id:'settlement',label:'结算与赔付',icon:'settlement',subtitle:'采价、核赔与资金对账',pages:[{id:'fixings',label:'采价核赔'},{id:'cash',label:'收付明细'},{id:'reconciliation',label:'对账结案'}]},
+]
+const descriptions:Record<string,string>={overview:'从一批投保申请开始，跟进有效责任、团队待办与关键业务节点。',applications:'逐户接收申请、审核资料及保费，跟踪保险核心出单确认。',policies:'以保单版本为依据，查看条款、责任及全链业务档案。',data:'浏览合约行情、贸易和供需数据，核查来源、发布时点与使用口径。',experiments:'配置数据、因子和注册模型，自主完成保险业务研究与历史验证。',reports:'保存可复核的研究版本，为承保与风险安排提供业务依据。',portfolio:'联合查看保单责任、再保分出、对冲合同与实际匹配情况。',arrangements:'关联已有再保安排，编制对冲方案，核对报价并提交审批。',executions:'跟踪交易请求、分批确认与异常查单，以实际确认量形成合同。',fixings:'依合同采价并锁定，核定赔款、复核批准后生成应付事项。',cash:'将应收应付、预占、在途与实际现金分开，跟进部分支付和回款。',reconciliation:'核对业务及现金事实，保留差异、处置依据和未结事项。'}
+Object.assign(descriptions,{decision:'汇集玉米供需、期货行情、农情与政策资料，连接业务判断与日常办理。',futures:'聚焦本产品指定合约，查看真实历史行情及对冲参考。','agri-risk':'比较产区天气与土壤，跟进灾害研判及政策影响。'})
+const page=ref('decision'), moduleId=computed(()=>modules.find(m=>m.pages.some(p=>p.id===page.value))?.id||'decision')
+const activeModule=computed(()=>modules.find(m=>m.id===moduleId.value)||modules[0]!),pageTitle=computed(()=>page.value==='decision'?'玉米态势':activeModule.value.pages.find(p=>p.id===page.value)?.label||'玉米态势')
+const user=ref<SessionUser|null>(null),workspace=ref<Workspace|null>(null),projectId=ref('PRJ-001')
+const username=ref(''),password=ref(''),loginBusy=ref(false),booting=ref(true),loading=ref(false),loginError=ref(''),loadError=ref(''),notice=ref(''),mobileMenu=ref(false)
+const form=ref<CommandForm|null>(null),formBusy=ref(false),formError=ref(''),requestId=ref(''),batchImport=ref(false),selected=ref<{type:string;id:string}|null>(null)
+const scenarioOpen=ref(false)
+const selectedDecision=ref<BusinessRecord|null>(null)
+let contextVersion=0,loadSequence=0
+const collections:Record<string,string>={application:'applications',policy:'policies',reinsurance:'reinsurance',plan:'plans',execution:'executions',hedge:'hedges',fixing:'fixings',claim:'claims',payable:'payables',payment:'payments',recovery:'recoveries',reconciliation:'reconciliations',batch:'batches',project:'projects',allocation:'allocations'}
+const entityNames:Record<string,string>={application:'投保申请',policy:'保单责任',reinsurance:'再保安排',plan:'对冲方案',execution:'交易执行',hedge:'对冲合同',fixing:'采价快照',claim:'赔款核定',payable:'应付事项',payment:'付款申请',recovery:'风险转移回收',reconciliation:'对账差异',batch:'导入批次',project:'项目档案',allocation:'责任匹配'}
+const record=computed(()=>{if(!selected.value||!workspace.value)return null;const list=workspace.value[collections[selected.value.type]||''];return Array.isArray(list)?(list as BusinessRecord[]).find(r=>r.id===selected.value?.id)||null:null})
+const recordActions=computed(()=>record.value&&selected.value&&user.value?actions(selected.value.type,record.value,user.value.role):[])
+const fieldLabels:Record<string,string>={applicant_name:'投保人',insured_name:'被保险人',customer_id:'客户编号',region:'标的区域',phone:'联系电话',tons:'保障 / 名义数量（吨）',area_mu:'种植面积（亩）',period_start:'责任起期',period_end:'责任止期',premium_due:'应收保费（元）',premium_received:'已收保费（元）',premium:'保费（元）',policy_no:'保单号',application_id:'来源申请',contract:'指定合约',guarantee_price:'保障价格（元/吨）',responsibility_version:'责任版本',product_version:'产品版本',price_field:'采价字段',source:'来源',created_at:'创建时间',updated_at:'最后更新',review_reason:'审核意见',reviewed_by:'复核人员',created_by:'经办人员',contract_no:'外部合同号',counterparty:'相对方',structure:'再保结构',ratio:'分出比例',calculation_basis:'摊回基础',limit:'限额（元）',reference:'确认凭证',name:'业务名称',tool:'交易工具',direction:'交易方向',strike_price:'执行价格（元/吨）',premium_per_ton:'权利金（元/吨）',budget:'费用预算（元）',quote_expires_at:'报价有效至',quote_reference:'报价凭证',approval_version:'批准版本',approved_by:'审批人',reason:'办理依据',report_id:'引用研究报告',basis:'责任基础',plan_id:'批准方案',requested_tons:'请求数量（吨）',confirmed_tons:'累计确认（吨）',reserved_tons:'仍预占数量（吨）',external_no:'外部编号',external_id:'外部编号',execution_id:'执行请求',policy_id:'保单责任编号',hedge_id:'对冲合同编号',expected_count:'应采观测数',actual_count:'实际观测数',average_price:'锁定均价（元/吨）',unit:'单位',rule_version:'计算规则版本',source_version:'来源版本',source_error:'来源异常',fixing_id:'锁定采价编号',rule_amount:'规则参考额（元）',assessed_amount:'人工核定额（元）',approved_amount:'批准累计额（元）',claim_id:'关联赔案',kind:'收付用途 / 类型',amount:'本次 / 应付金额（元）',paid_amount:'已确认实付（元）',reserved_amount:'在途及预占（元）',balance:'可付余额（元）',payable_id:'应付事项',expected_amount:'预计回收（元）',confirmed_amount:'确认应收（元）',received_amount:'累计实收（元）',message:'原始发现',resolution_reason:'处理依据',resolution_reference:'处置凭证',source_id:'来源编号',row_count:'导入行数',error_count:'错误行数',notification_status:'通知状态',review_status:'复核状态',change_reason:'变更依据',total_premium:'权利金总额（元）',missing_dates:'缺失观察日',fixing_dates:'约定采价日',expected_dates:'应采观察日',materials:'材料清单',terms_confirmed:'条款确认',policy_ids:'责任保单'}
+const allFacts=computed(()=>record.value?Object.entries(record.value).filter(([key,value])=>fieldLabels[key]&&typeof value!=='object'&&value!==null):[])
+const facts=computed(()=>allFacts.value)
+const related=computed(()=>{
+ if(!record.value||!workspace.value)return []
+ const r=record.value;const links:{type:string;record:BusinessRecord}[]=[]
+ for(const[type,collection]of Object.entries(collections))for(const item of (workspace.value[collection] as BusinessRecord[]||[])){
+  if(item.id===r.id)continue
+  const direct=Object.entries(r).some(([k,v])=>k.endsWith('_id')&&v===item.id)||(Array.isArray(r.policy_ids)&&r.policy_ids.includes(item.id))
+  const inverse=Object.entries(item).some(([k,v])=>k.endsWith('_id')&&v===r.id)||(Array.isArray(item.policy_ids)&&item.policy_ids.includes(r.id))
+  if(direct||inverse)links.push({type,record:item})
+ }
+ return links.slice(0,15)
 })
-
-function usePolicy(policy: Policy) {
-  inputs.value[role.value] = {
-    insured_tons: policy.tons, guarantee_price: policy.guarantee,
-    settlement_price: policy.status === '已结算' ? policy.settlement : 2450,
-    deductible_per_ton: policy.deductible, payout_cap: policy.cap,
-  }
-  page.value = 'scenario'
-}
-
-async function refreshScenario() {
-  const id = ++requestId
-  result.value = null; stress.value = []; scenarioError.value = ''
-  calculating.value = false
-  if (validation.value) return
-  const body = { ...form.value }
-  calculating.value = true
-  try {
-    const prices = [body.settlement_price, Math.max(body.settlement_price - 100, 0), Math.max(body.settlement_price - 200, 0)]
-    const results = await Promise.all(prices.map(settlement_price => api.scenario({ ...body, settlement_price })))
-    if (id !== requestId) return
-    result.value = results[0]!
-    stress.value = results.map((value, index) => ({ price: prices[index]!, payout: value.gross_payout }))
-  } catch (e) {
-    if (id === requestId) scenarioError.value = e instanceof Error ? e.message : '测算暂不可用，请重试。'
-  } finally { if (id === requestId) calculating.value = false }
-}
-watch(form, refreshScenario, { deep: true })
-watch(role, () => { page.value = role.value === 'insurer' ? 'market' : 'overview' })
-async function loadMarket() {
-  loading.value = true; loadError.value = ''
-  try { market.value = await api.market() }
-  catch { loadError.value = '行情暂时无法加载，请重试。保障试算仍可单独使用。' }
-  finally { loading.value = false }
-}
-onMounted(() => { void loadMarket(); void refreshScenario() })
+const recordObservations=computed(()=>((record.value?.observations||[])as Record<string,unknown>[]).map((r,i)=>({...r,id:String(i),version:1,status:''})))
+Object.assign(collections,{premium_adjustment:'premium_adjustments',reinsurance_allocation:'reinsurance_allocations',decision:'decision_records'})
+Object.assign(entityNames,{premium_adjustment:'批改保费待收',reinsurance_allocation:'再保责任匹配',decision:'业务判断'})
+Object.assign(fieldLabels,{available_amount:'可付余额（元）',balance:'未付余额（元）',type:'差异类型',description:'业务说明 / 原始发现',target_id:'来源业务编号',evidence:'处置依据',payment_date:'付款日期',remaining_amount:'未结金额（元）',adjustment_amount:'保费调整额（元）',confirmed_amount:'已确认金额（元）',decision_id:'引用业务判断',disposition:'人工判断结论'})
+const observationCols:Column[]=[{key:'date',label:'约定观察日'},{key:'value',label:'实际价格',format:'money'},{key:'source',label:'价格来源'}]
+function writeNavigation(){const url=new URL(location.href);url.searchParams.delete('view');url.hash=page.value;window.history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`)}
+function navigate(id:string){if(user.value?.role==='customer'&&!['applications','policies'].includes(id))return;if(!modules.some(m=>m.pages.some(p=>p.id===id)))return;page.value=id;selected.value=null;mobileMenu.value=false;writeNavigation()}
+function changeModule(id:string){const m=modules.find(m=>m.id===id);if(m)navigate(m.pages[0]!.id)}
+function restoreNavigation(){const hash=location.hash.slice(1);page.value=user.value?.role==='customer'?(['applications','policies'].includes(hash)?hash:'applications'):modules.some(m=>m.pages.some(p=>p.id===hash))?hash:'decision';writeNavigation()}
+function applySnapshot(next:Workspace){if(next.id&&next.id!==projectId.value)return;if(!workspace.value||Number(next.revision)>=Number(workspace.value.revision))workspace.value=next}
+async function loadWorkspace(){const ctx=contextVersion,seq=++loadSequence;loading.value=true;loadError.value='';try{const next=await platformApi.workspace(projectId.value);if(ctx===contextVersion&&seq===loadSequence)applySnapshot(next)}catch(e){if(ctx===contextVersion)loadError.value=(e as Error).message}finally{if(ctx===contextVersion&&seq===loadSequence)loading.value=false}}
+async function login(){loginBusy.value=true;loginError.value='';const ctx=++contextVersion;try{const signedIn=await platformApi.login(username.value.trim(),password.value);if(ctx!==contextVersion)return;user.value=signedIn;password.value='';restoreNavigation();await loadWorkspace()}catch(e){loginError.value=(e as Error).message}finally{loginBusy.value=false}}
+async function logout(){try{await platformApi.logout()}catch(error){if(hasSession()){loadError.value=error instanceof Error?error.message:'退出未完成，请重试';return}}contextVersion++;clearSession();user.value=null;workspace.value=null;selected.value=null;selectedDecision.value=null;form.value=null;scenarioOpen.value=false;batchImport.value=false;notice.value='';password.value='';page.value='decision';mobileMenu.value=false}
+function selectRecord(type:string,value:BusinessRecord){selected.value={type,id:value.id}}
+function openCommand(id:string,value?:BusinessRecord){if(!workspace.value)return;form.value=commandForm(id,workspace.value,value);requestId.value=crypto.randomUUID();formError.value=''}
+function recordDecision(context:Record<string,unknown>){openCommand('decision.record',{id:'decision-context',version:0,status:'context',...context})}
+function enrollFromDecision(value:BusinessRecord){navigate('applications');selectedDecision.value=value;openCommand('application.create',{...value,decision_id:value.id})}
+async function submitCommand(payload:Record<string,unknown>){if(!form.value)return;const ctx=contextVersion;formBusy.value=true;formError.value='';try{const response=await platformApi.command(form.value.command,projectId.value,payload,form.value.target,requestId.value);if(ctx!==contextVersion)return;applySnapshot(response.snapshot);notice.value=response.message||'操作已保存至服务端。';const result=response.result as BusinessRecord;const command=form.value.command;form.value=null;if(command==='decision.record'&&result?.id)selectedDecision.value=result;if(command==='application.create'&&result?.id){selectedDecision.value=null;selectRecord('application',result)};if(command==='hedge.plan'&&result?.id)selectRecord('plan',result);if(command==='fixing.prepare'&&result?.id)selectRecord('fixing',result)}catch(e){if(ctx===contextVersion)formError.value=(e as Error).message}finally{if(ctx===contextVersion)formBusy.value=false}}
+function taskClicked(task:BusinessRecord){const type=Object.keys(collections).find(k=>collections[k]===task.source_type);const nav:Record<string,string>={applications:'applications',plans:'arrangements',executions:'executions',fixings:'fixings',claims:'fixings',payments:'cash',recoveries:'cash',reconciliations:'reconciliation',allocations:'portfolio',reinsurance_allocations:'arrangements',premium_adjustments:'applications'};navigate(nav[String(task.source_type)]||'overview');const rows=workspace.value?.[String(task.source_type)]as BusinessRecord[]|undefined;const target=rows?.find(r=>r.id===task.target_id);if(type&&target)selectRecord(type,target)}
+async function downloadProject(){try{const result=await request<Record<string,unknown>>(`/workspace/report?project_id=${encodeURIComponent(projectId.value)}`);const anchor=document.createElement('a');anchor.href=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));anchor.download='玉米保险项目业务档案.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(anchor.href),1000)}catch(e){loadError.value=(e as Error).message}}
+function referenceReport(reportId:string){navigate('arrangements');openCommand('hedge.plan');const reportField=form.value?.fields.find(f=>f.key==='report_id');if(reportField)reportField.value=reportId}
+function factValue(key:string,value:unknown){if(typeof value==='boolean')return value?'已确认':'未确认';if(key.endsWith('_at'))return date(value);if(typeof value==='number')return key==='ratio'?`${fmt(value*100)}%`:fmt(value);return label(value)}
+function printable(value:unknown){return JSON.stringify(value,null,2)}
+onMounted(async()=>{if(hasSession()){try{const response=await platformApi.session();user.value=response.user;restoreNavigation();await loadWorkspace()}catch{clearSession()}}booting.value=false})
 </script>
 
 <template>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand"><div class="brand-icon">禾</div><div><strong>GrainGuard</strong><small>玉米价格保障工作台</small></div></div>
-      <div class="workspace-label">业务工作台 <span>{{ active.label }}</span></div>
-      <nav aria-label="业务导航"><button v-for="item in tabs" :key="item.id" :class="{ active: page === item.id }" :aria-label="item.label" :aria-current="page === item.id ? 'page' : undefined" @click="page = item.id"><span class="nav-dot"></span><span class="nav-label">{{ item.label }}</span></button></nav>
-      <div class="sidebar-bottom"><div class="avatar">{{ active.label.slice(0, 1) }}</div><div><strong>{{ active.label }}</strong><small>演示业务视角</small></div></div>
-    </aside>
-    <main class="main-content">
-      <header class="topbar"><div class="breadcrumbs">{{ active.label }} <span>/</span> <b>{{ tabs.find(item => item.id === page)?.label }}</b></div><label class="role-picker">演示角色切换<select v-model="role"><option v-for="(workspace, key) in workspaces" :key="key" :value="key">{{ workspace.label }}</option></select></label></header>
-      <section class="page-heading"><div><span class="eyebrow">{{ active.label }} · {{ page === 'market' ? '价格观察' : page === 'scenario' ? '情景试算' : '业务工作台' }}</span><h1>{{ page === 'overview' ? active.title : page === 'records' ? recordLabels[role] : page === 'analysis' ? '客户风险分析' : page === 'market' ? '玉米行情与价格预测' : page === 'comparison' ? '赔付风险评估' : active.scenario }}</h1></div><button v-if="page === 'overview'" class="primary-btn" @click="page = 'records'">{{ overviewActions[role] }} ↗</button></section>
-      <template v-if="page === 'scenario'">
-        <div v-if="loadError" class="error-banner" role="alert">{{ loadError }} <button class="text-btn" @click="loadMarket">重新加载行情</button></div>
-        <div v-else-if="loading" class="source-banner" role="status">正在加载行情…</div>
-        <div v-else-if="market" class="source-banner" :class="{ 'source-live': ['uqer', 'parquet'].includes(market.provider) }"><span class="source-icon">i</span><div><strong>{{ ['uqer', 'parquet'].includes(market.provider) ? '真实期货历史快照 · 仅供价格观察' : '模拟行情 · 不代表真实市场价格' }}</strong><small>{{ market.warning }}</small><small>历史快照不代表实时行情；期货价格不能直接作为保单结算价。</small></div><span class="source-date">样本截至 {{ latest?.date }}</span></div>
-      </template>
-      <div v-if="page === 'scenario'" class="scenario-context"><span class="pill-soft">假设情景 · 非真实保单</span><span>保障价 {{ money(form.guarantee_price) }} / 情景价 {{ money(form.settlement_price) }} 元/吨</span></div>
-      <div v-if="page === 'scenario' && (validation || scenarioError)" class="error-banner" role="alert">{{ validation || scenarioError }} <button v-if="scenarioError" class="text-btn" @click="refreshScenario">重试测算</button></div>
-      <div v-if="page === 'scenario' && calculating" class="calculation-status" role="status">正在更新情景测算…</div>
-
-      <BusinessWorkspace v-if="page === 'overview' || page === 'records'" :role="role" :records="page === 'records'" @navigate="page = 'records'" @scenario="usePolicy" @comparison="page = 'comparison'" />
-
-      <ModelComparisonWorkspace v-else-if="page === 'comparison'" @scenario="page = 'scenario'" />
-
-      <MarketWorkspace v-else-if="page === 'market'" :insurer="role === 'insurer'" @analyze="startAnalysis" />
-
-      <template v-else-if="page === 'scenario'">
-        <div class="scenario-layout"><section class="panel input-panel"><div class="panel-heading"><h2>保障与价格假设</h2></div>
-          <label class="field"><span>{{ active.quantity }} <small>吨</small></span><input v-model.number="form.insured_tons" type="number" min="0" max="1000000" step="1" /></label>
-          <label class="field"><span>保障目标价 <small>元/吨</small></span><input v-model.number="form.guarantee_price" type="number" min="0" max="100000" step="10" /></label>
-          <label class="field"><span>情景结算价 <small>元/吨</small></span><input v-model.number="form.settlement_price" type="number" min="0" max="100000" step="10" /></label>
-          <label class="field"><span>每吨免赔额 <small>元/吨</small></span><input v-model.number="form.deductible_per_ton" type="number" min="0" step="10" /></label>
-          <label class="field"><span>赔付上限 <small>元，留空不封顶</small></span><input :value="form.payout_cap ?? ''" type="number" min="0" step="1000" @input="form.payout_cap = ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value)" /></label>
-          <p class="business-note">上限留空不封顶；0元表示不赔付。</p>
-        </section><section class="panel result-panel" aria-live="polite"><div class="result-top"><h2>{{ !result ? '等待有效测算' : result.triggered ? '本情景触发赔付' : '本情景无赔付' }}</h2><span class="pill-soft">假设情景</span></div><div class="payout-number">¥ {{ money(result?.gross_payout) }}</div><div class="payout-caption">{{ active.label }} · 情景赔付金额</div><dl class="business-list"><div><dt>限额前每吨价差赔付</dt><dd>{{ money(result?.loss_per_ton) }} 元/吨</dd></div><div><dt>{{ active.quantity }}</dt><dd>{{ money(result?.insured_tons) }} 吨</dd></div><div><dt>应用上限后的实际每吨赔付</dt><dd>{{ money(result && result.insured_tons > 0 ? result.gross_payout / result.insured_tons : undefined) }} 元/吨</dd></div></dl><details class="calculation-details"><summary>查看赔付计算口径</summary><p>保障价减情景结算价，再减每吨免赔额；正差额乘保障数量，最终金额不超过赔付上限。</p></details></section></div>
-        <section class="panel records-panel"><div class="panel-heading"><h2>价格下跌情景对比</h2></div><table class="scenario-table"><thead><tr><th>情景结算价（元/吨）</th><th>赔付金额（元）</th></tr></thead><tbody><tr v-for="(row,index) in stress" :key="index"><td>{{ money(row.price) }}</td><td>{{ money(row.payout) }}</td></tr></tbody></table></section>
-        <div class="disclaimer">当前为假设情景，不代表真实保单或实际理赔。实际赔付以合同约定的价格来源、保障期限和条款为准。</div>
-      </template>
-      <AnalysisJourney v-if="role === 'insurer'" v-show="page === 'analysis'" :ticker="analysisTicker" @market="page = 'market'" @comparison="page = 'comparison'" />
-      <footer>GRAINGUARD <span>保险 + 期货 · 价格保障情景演示</span></footer>
-    </main>
+<div class="gg">
+ <div v-if="booting" class="gg-boot"><span class="gg-spinner"/><strong>正在连接保单业务工作台…</strong></div>
+ <div v-else-if="!user" class="gg-login">
+  <section class="gg-login-story"><a class="gg-brand gg-login-brand" href="#"><span><Icon name="grain" :size="27"/></span><div><strong>GrainGuard<span>穗安</span></strong><small>玉米保险业务平台</small></div></a><div class="gg-login-story-main"><span class="gg-overline">数据判断，连接保障兑现</span><h1>看清玉米态势，<br/>把保障送到田间。</h1><p>从供需行情形成判断，帮助业务员代办投保，<br class="gg-desktop-only"/>连接保险方对冲和农户赔付兑现。</p><div class="gg-login-flow"><div v-for="(m,i) in modules.filter(m=>m.id!=='decision')" :key="m.id"><span>0{{ i+1 }}</span><Icon :name="m.icon" :size="21"/><strong>{{ m.label }}</strong></div></div></div><div class="gg-login-foot"><span>以保单为核心 · 以业务事实为依据</span><span>GRAIN INSURANCE OPERATIONS</span></div><div class="gg-orbit gg-orbit-one"/><div class="gg-orbit gg-orbit-two"/></section>
+  <section class="gg-login-panel"><div class="gg-login-form"><span class="gg-login-sandbox"><i/>保单业务 · 统一身份认证</span><h2>登录保单业务工作台</h2><p>从玉米态势开始，按实际授权办理投保与履约。</p><form @submit.prevent="login"><label class="gg-field"><span>账号</span><input v-model="username" aria-label="账号" autocomplete="username" placeholder="请输入业务账号" required :disabled="loginBusy"/></label><label class="gg-field"><span>密码</span><input v-model="password" aria-label="密码" autocomplete="current-password" type="password" placeholder="请输入登录密码" required :disabled="loginBusy"/></label><div v-if="loginError" class="gg-error" role="alert"><Icon name="warning" :size="17"/>{{ loginError }}</div><button type="submit" class="gg-btn gg-btn-primary gg-login-submit" :disabled="loginBusy"><span v-if="loginBusy" class="gg-spinner"/>{{ loginBusy?'正在登录…':'登录' }}<Icon v-if="!loginBusy" name="arrow" :size="18"/></button></form><div class="gg-login-note"><Icon name="risk" :size="17"/><span>请使用已分配的业务账号登录，系统按岗位和项目授权开放操作。</span></div></div><span class="gg-login-version">GrainGuard · 统一保单业务工作台 V3.0</span></section>
+ </div>
+ <div v-else class="gg-shell" :class="{'gg-menu-open':mobileMenu,'gg-customer':user.role==='customer'}">
+  <button v-if="mobileMenu" class="gg-menu-scrim" aria-label="关闭导航" @click="mobileMenu=false"/>
+  <aside class="gg-sidebar"><a class="gg-brand" href="#decision" :aria-label="user.role==='customer'?'我的投保申请':'玉米态势首页'" @click.prevent="navigate(user.role==='customer'?'applications':'decision')"><span><Icon name="grain" :size="27"/></span><div><strong>GrainGuard<span>穗安</span></strong><small>玉米保险业务平台</small></div></a><div class="gg-sidebar-caption">{{ user.role==='customer'?'投保资料提交':'保单业务工作台' }}<span>POLICY OPERATIONS</span></div>
+   <nav v-if="user.role!=='customer'" data-testid="module-nav" class="gg-module-nav" aria-label="功能模块"><button v-for="m in modules" :key="m.id" :class="{active:moduleId===m.id}" :aria-label="m.label" :aria-current="moduleId===m.id?'page':undefined" @click="changeModule(m.id)"><Icon :name="m.icon" :size="21"/><div><strong>{{ m.label }}</strong><small>{{ m.subtitle }}</small></div><span class="gg-nav-active-dot"/></button></nav>
+   <nav v-else class="gg-module-nav" aria-label="投保服务"><button :class="{active:page==='applications'}" @click="navigate('applications')"><Icon name="policy"/><strong>我的投保申请</strong></button><button :class="{active:page==='policies'}" @click="navigate('policies')"><Icon name="file"/><strong>我的保单与进度</strong></button></nav>
+   <div class="gg-sidebar-project"><div><Icon name="building" :size="18"/><span>当前项目</span></div><strong>{{ workspace?.projects[0]?.name || '黑龙江玉米保障项目' }}</strong><small>PRJ-001 · 固定产品版本</small></div><div class="gg-sidebar-bottom"><span class="gg-avatar">{{ (user.display_name||user.name||user.username).slice(0,1) }}</span><div><strong>{{ user.display_name||user.name||user.username }}</strong><small>{{ label(user.role) }} · 已认证</small></div><button class="gg-icon-btn" aria-label="退出登录" title="退出登录" @click="logout"><Icon name="logout" :size="18"/></button></div>
+  </aside>
+  <div class="gg-workspace"><header class="gg-topbar"><div class="gg-breadcrumb"><button class="gg-icon-btn gg-mobile-menu" aria-label="打开功能导航" @click="mobileMenu=true"><Icon name="menu"/></button><span>保单业务工作台</span><Icon name="chevron" :size="13"/><strong>{{ user.role==='customer'?'投保服务':activeModule.label }}</strong></div><div class="gg-topbar-actions"><span class="gg-business-date"><Icon name="calendar" :size="15"/>{{ (workspace?.as_of||'').slice(0,10) || '业务日期待同步' }}</span><button class="gg-top-refresh" :disabled="loading" aria-label="刷新业务数据" @click="loadWorkspace"><Icon name="refresh" :size="17" :class="{'gg-spin':loading}"/></button><span class="gg-top-mode"><i/>业务运行</span><span class="gg-top-avatar" :title="String(user.name||user.username)">{{ label(user.role) }}</span></div></header>
+   <main class="gg-main"><div class="gg-page-heading"><div><span class="gg-overline">{{ user.role==='customer'?'CLIENT APPLICATION':`WORKSPACE / ${moduleId.toUpperCase()}` }}</span><h1>{{ user.role==='customer'?(page==='policies'?'我的保单与进度':'我的投保申请'):pageTitle }}</h1><p>{{ user.role==='customer'?'提交本人或授权成员资料，查看受理与保障进度。':descriptions[page] }}</p></div><label v-if="user.role!=='customer'" class="gg-project-select"><Icon name="building" :size="17"/><select v-model="projectId" aria-label="当前项目" @change="workspace=null;selectedDecision=null;contextVersion++;loadWorkspace()"><option v-for="p in workspace?.projects||[{id:'PRJ-001',name:'黑龙江玉米价格保障示范项目'}]" :key="p.id" :value="p.id">{{ p.name }}</option></select><Icon name="down" :size="14"/></label></div>
+    <nav v-if="user.role!=='customer'" class="gg-page-nav" data-testid="page-nav" aria-label="模块页面"><button v-for="(p,i) in activeModule.pages" :key="p.id" :class="{active:page===p.id}" :aria-label="p.label" :aria-current="page===p.id?'page':undefined" @click="navigate(p.id)"><span>0{{ i+1 }}</span>{{ p.label }}<b v-if="p.id==='applications'&&workspace?.applications.filter(a=>a.status==='submitted').length">{{ workspace.applications.filter(a=>a.status==='submitted').length }}</b></button></nav>
+    <div class="gg-mode-banner"><Icon name="info" :size="17"/><span><strong>项目资料与业务台账。</strong> 按当前项目查看市场、区域风险及办理进度。</span><span v-if="workspace" class="gg-sync-state"><i/>服务端已同步 · v{{ workspace.revision }}</span></div>
+    <div v-if="notice" class="gg-success-note" role="status"><Icon name="check" :size="17"/><span>{{ notice }}</span><button class="gg-icon-btn" aria-label="关闭成功提示" @click="notice=''"><Icon name="close" :size="16"/></button></div>
+    <div v-if="loadError" class="gg-error" role="alert"><Icon name="warning" :size="18"/><span>{{ loadError }}</span><button class="gg-text-btn" @click="loadWorkspace">重新加载</button></div>
+    <div v-if="!workspace&&loading" class="gg-loading gg-main-loading"><span class="gg-spinner"/><strong>正在读取项目与业务记录…</strong></div>
+    <template v-if="workspace">
+     <div v-if="selectedDecision&&user.role==='operator'" class="gg-decision-saved" role="status"><span class="gg-task-icon"><Icon name="check" :size="19"/></span><div><strong>业务判断已记录 · {{ label(selectedDecision.disposition) }}</strong><p>{{ selectedDecision.reason }}<small>人工判断参考，不替代正式核保。</small></p></div><button v-if="selectedDecision.disposition==='proceed'" class="gg-btn gg-btn-primary" data-testid="decision-enroll" @click="enrollFromDecision(selectedDecision)">带入投保申请<Icon name="arrow" :size="15"/></button><button class="gg-icon-btn" aria-label="收起业务判断提示" @click="selectedDecision=null"><Icon name="close" :size="16"/></button></div>
+     <div v-if="['risk','research'].includes(moduleId)" class="gg-scenario-entry"><span><Icon name="spark" :size="16"/>在同一责任快照下，比较价格冲击与回款时点</span><button class="gg-text-btn" @click="scenarioOpen=true">业务情景比较<Icon name="arrow" :size="14"/></button></div>
+     <DecisionModule v-if="moduleId==='decision'&&user.role!=='customer'" :key="`${projectId}-${user.id}`" :project-id="projectId" :region="String(workspace.projects[0]?.region||'')" :page="page" :user="user" :decision-records="(workspace.decision_records as BusinessRecord[])||[]" :workspace="workspace" @task="taskClicked" @record="recordDecision" @enroll="enrollFromDecision" @navigate="navigate"/>
+     <BusinessModule v-else-if="moduleId==='business' || user.role==='customer'" :workspace="workspace" :page="page" :user="user" @action="openCommand" @select="selectRecord" @navigate="navigate" @task="taskClicked" @import="batchImport=true"/>
+     <ResearchModule v-else-if="moduleId==='research'" :key="`${projectId}-${user.id}`" :page="page" :user="user" :project-id="projectId" @reference="referenceReport"/>
+     <RiskModule v-else-if="moduleId==='risk'" :workspace="workspace" :page="page" :user="user" @action="openCommand" @select="selectRecord" @navigate="navigate"/>
+     <SettlementModule v-else :workspace="workspace" :page="page" :user="user" @action="openCommand" @select="selectRecord" @report="downloadProject"/>
+    </template><footer class="gg-footer"><span>GrainGuard · 每一笔业务，都有清晰依据</span><span v-if="workspace">业务快照 {{ date(workspace.as_of) }} · 服务端持久化</span></footer>
+   </main>
   </div>
+ </div>
+ <Teleport to="body"><div v-if="record&&selected" class="gg gg-drawer-overlay" @click.self="selected=null"><section class="gg-drawer" role="dialog" aria-modal="true" :aria-label="`${entityNames[selected.type]}详情`"><header class="gg-drawer-header"><div><span class="gg-overline">{{ entityNames[selected.type] }} / v{{ record.version }}</span><h2>{{ record.name || record.policy_no || record.insured_name || entityNames[selected.type] }}</h2><small>{{ record.id }}</small></div><button class="gg-icon-btn" aria-label="关闭业务详情" @click="selected=null"><Icon name="close"/></button></header><div class="gg-drawer-body"><div class="gg-drawer-status"><span class="gg-badge" :class="`gg-${tone(record.status)}`"><i/>{{ label(record.status) }}</span><span class="gg-chip">业务记录</span></div><div v-if="recordActions.length" class="gg-detail-actions"><button v-for="a in recordActions" :key="a.id" class="gg-btn" :class="{'gg-btn-primary':a.primary}" @click="openCommand(a.id,record)">{{ a.label }}<Icon v-if="a.primary" name="arrow" :size="14"/></button></div><p v-else class="gg-note">当前状态及授权下没有可办理操作，可查阅记录与关联业务。</p><dl class="gg-detail-facts"><div v-for="[key,value] in facts" :key="key"><dt>{{ fieldLabels[key] }}</dt><dd>{{ factValue(key,value) }}</dd></div></dl>
+  <section v-if="record.pending_change" class="gg-detail-section"><h3>待复核的保单变更</h3><dl class="gg-facts"><div v-for="(value,key) in (record.pending_change as Record<string,unknown>)" :key="key"><dt>{{ fieldLabels[key]||key }}</dt><dd>{{ typeof value==='object'?printable(value):factValue(key,value) }}</dd></div></dl></section>
+  <section v-if="record.product_snapshot" class="gg-detail-section"><h3>条款与产品快照</h3><p class="gg-formula">{{ (record.product_snapshot as Record<string,unknown>).formula }}</p><dl class="gg-facts"><div><dt>批准版本</dt><dd>{{ (record.product_snapshot as Record<string,unknown>).version }}</dd></div><div><dt>免赔额</dt><dd>{{ fmt((record.product_snapshot as Record<string,unknown>).deductible_per_ton) }} 元/吨</dd></div><div><dt>每吨赔付上限</dt><dd>{{ fmt((record.product_snapshot as Record<string,unknown>).payout_cap_per_ton) }} 元/吨</dd></div></dl></section>
+  <section v-for="key in ['materials','fixing_dates','expected_dates','missing_dates','policy_ids']" v-show="Array.isArray(record[key])&&(record[key] as unknown[]).length" :key="key" class="gg-detail-section"><h3>{{ fieldLabels[key] }}</h3><div class="gg-tag-list"><span v-for="item in (record[key] as unknown[])" :key="String(item)" class="gg-chip">{{ item }}</span></div></section>
+  <RecordTable v-if="recordObservations.length" title="逐日采价记录" :records="recordObservations" :columns="observationCols" :selectable="false" :searchable="false"/>
+  <section v-if="selected.type==='batch'&&Array.isArray(record.rows)" class="gg-detail-section"><h3>逐户校验结果</h3><div v-for="row in (record.rows as ImportRow[])" :key="row.row" class="gg-preview-row"><span class="gg-badge" :class="row.valid?'gg-success':'gg-danger'">第{{ row.row }}行</span><span>{{ row.values.insured_name }} · {{ row.errors.join('；')||'校验通过' }}</span></div></section>
+  <section v-if="related.length" class="gg-detail-section"><h3>关联业务档案<span class="gg-counter">{{ related.length }}</span></h3><button v-for="link in related" :key="link.record.id" class="gg-related-link" @click="selectRecord(link.type,link.record)"><span class="gg-task-icon"><Icon :name="link.type==='payment'?'settlement':'file'" :size="17"/></span><div><strong>{{ entityNames[link.type] }} · {{ link.record.name||link.record.insured_name||label(link.record.kind)||'' }}</strong><small>{{ link.record.id }}</small></div><span class="gg-badge" :class="`gg-${tone(link.record.status)}`">{{ label(link.record.status) }}</span><Icon name="chevron" :size="14"/></button></section>
+  <details v-if="Array.isArray(record.history)&&record.history.length" class="gg-query-advanced"><summary>查看历史责任版本</summary><pre class="gg-json">{{ printable(record.history) }}</pre></details>
+ </div><footer class="gg-drawer-foot"><Icon name="risk" :size="15"/><span>当前记录来自服务端 · {{ record.id }} · v{{ record.version }}</span></footer></section></div></Teleport>
+ <CommandDialog v-if="form" :form="form" :busy="formBusy" :error="formError" @close="form=null" @submit="submitCommand"/>
+ <BatchImport v-if="batchImport" :project-id="projectId" @close="batchImport=false" @snapshot="applySnapshot"/>
+ <ScenarioDialog v-if="scenarioOpen&&workspace" :project-id="projectId" :guarantee-price="Number(workspace.product.guarantee_price||2400)" @close="scenarioOpen=false"/>
+</div>
 </template>
