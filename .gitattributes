@@ -1,0 +1,2 @@
+# Preserve the source archive byte-for-byte for its SHA256 provenance check.
+/backend/data/platform/casde_20261009_source.html -text -whitespace

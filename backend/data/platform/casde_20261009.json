@@ -1,0 +1,26 @@
+{
+  "schema_version": "casde-corn-v1",
+  "release_id": "CASDE-No.124-20261009",
+  "source_id": "casde",
+  "source_name": "农业农村部市场预警专家委员会",
+  "source_uri": "https://scs.moa.gov.cn/jcyj/202610/t20261009_6488446.htm",
+  "source_published_at": "2026-10-09",
+  "publication_time_precision": "date",
+  "first_seen_at": "2026-10-25T04:35:52Z",
+  "source_file": "casde_20261009_source.html",
+  "source_file_sha256": "3658536bf67980e8f489414ae3d40ab2b3ac1ba968222040c4efadaa1f80cb65",
+  "entity_code": "CHN",
+  "commodity": "玉米原粮",
+  "period_type": "MY",
+  "market_year_start_month": 10,
+  "original_unit": "万吨",
+  "normalized_unit": "吨",
+  "conversion_multiplier": 10000,
+  "notes": ["原文中国玉米供需平衡表逐项转录；以原文为准。", "本表未提供玉米期初或期末库存；结余变化不是库存水平。", "9月预测列是10月报告的对照列，不能视为9月当时已在本系统可得。", "官方声明：报告为团队研究预测成果，不作为投资或经营直接依据。"],
+  "columns": [
+    {"marketing_year": "2024/25", "revision": "202610-current", "statistic_status": "来源未单独标注", "production": 29492, "imports_my": 183, "domestic_consumption": 29786, "food_use": 1000, "feed_use": 19350, "industrial_use": 8340, "seed_use": 128, "loss_other": 968, "exports_my": 0, "stock_change": -111},
+    {"marketing_year": "2025/26", "revision": "202610-estimate", "statistic_status": "10月估计", "production": 30124, "imports_my": 500, "domestic_consumption": 30740, "food_use": 998, "feed_use": 20150, "industrial_use": 8500, "seed_use": 129, "loss_other": 963, "exports_my": 1, "stock_change": -117},
+    {"marketing_year": "2026/27", "revision": "202609-comparator", "statistic_status": "9月预测（10月报告对照列）", "production": 30600, "imports_my": 600, "domestic_consumption": 31165, "food_use": 996, "feed_use": 20960, "industrial_use": 8120, "seed_use": 129, "loss_other": 960, "exports_my": 1, "stock_change": 34},
+    {"marketing_year": "2026/27", "revision": "202610-forecast", "statistic_status": "10月预测", "production": 30600, "imports_my": 600, "domestic_consumption": 30685, "food_use": 996, "feed_use": 20050, "industrial_use": 8550, "seed_use": 129, "loss_other": 960, "exports_my": 1, "stock_change": 514}
+  ]
+}

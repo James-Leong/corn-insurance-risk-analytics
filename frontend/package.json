@@ -7,9 +7,13 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:e2e": "node tests/business.e2e.mjs",
-    "test:comparison": "node tests/comparison.e2e.mjs",
-    "test:journey": "node tests/journey.e2e.mjs"
+    "test:e2e": "node tests/platform.e2e.mjs",
+    "test:platform": "node tests/platform.e2e.mjs",
+    "test:decision": "node tests/decision.e2e.mjs",
+    "test:legacy:business": "node tests/business.e2e.mjs",
+    "test:legacy:comparison": "node tests/comparison.e2e.mjs",
+    "test:legacy:journey": "node tests/journey.e2e.mjs",
+    "test:review": "node tests/review-regressions.e2e.mjs"
   },
   "dependencies": {
     "vue": "3.5.13"

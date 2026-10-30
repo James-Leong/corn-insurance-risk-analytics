@@ -6,6 +6,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
+    platform_database_url: str | None = None
     app_env: str = "demo"
     data_provider: str = "auto"
     uqer_token: str | None = None

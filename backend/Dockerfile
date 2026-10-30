@@ -7,5 +7,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --extra inference
 ENV PATH="/app/.venv/bin:$PATH"
 COPY app ./app
+COPY data ./data
+COPY tools ./tools
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

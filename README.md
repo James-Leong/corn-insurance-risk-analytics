@@ -1,83 +1,81 @@
-# 玉米价格预测与农业保险风险分析 Demo
+# 玉米保险业务平台
 
-面向课程投标汇报的单仓库原型：支持四类业务视角、价格险规则试算和保险机构的多方法评估。真实行情从本地Parquet快照读取，模型比较从离线生成的结果包读取；网页请求不调用UQER或训练模型。当前数据范围固定为2025-12-31至2026-10-23。无快照时auto模式明确展示模拟行情；已配置但损坏的快照报错，不自动降级。
+面向既有玉米保险产品的业务团队，采用**玉米态势首页＋四个完整业务模块**：投保与保单、数据与研究、风险转移与组合、结算与赔付。经办与复核共用服务端台账，客户仅访问本人申请、保单及赔付进度。两个下单流程分别是客户投保出单与保险方对冲委托。
 
-## 本地开发
+开发与部署参见[数据库说明](docs/database/README.md)、[业务接口契约](backend/app/platform/CONTRACT.md)及[决策支持契约](docs/contracts/decision-v1.md)。项目说明、竞标汇报、需求设计和内部评审材料仅在本地维护，不随代码提交。
 
-```bash
-cd backend
-uv sync --extra dev --extra inference
-source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-```
+## 本地运行
 
-Python 使用 3.12（与后端镜像一致），先验证解释器版本，再创建虚拟环境。前端使用 Node.js 22：另开终端执行 `source ~/.nvm/nvm.sh && cd frontend && nvm use && npm ci && npm run dev`。浏览器访问 `http://localhost:5173`，API 文档位于 `http://localhost:8000/docs`。
-
-后端代码提交前，在 `backend` 目录运行 `uv run --extra dev ruff format app tests` 格式化代码，并运行 `uv run --extra dev ruff check app tests` 检查 lint 规则。
-
-提交代码时，请从最新的 `main` 创建自己的开发分支。修改后，在 `backend` 目录运行 Ruff 格式化和 lint 检查，通过后提交并推送分支，再创建目标为 `main` 的 Pull Request。GitHub Actions 会自动运行 Ruff 检查；若检查失败，请修复问题并再次推送。检查通过且完成 review 后再合入。
-
-## 容器：独立构建和启动
+后端要求Python **3.12**，前端要求Node.js **22**（`frontend/.nvmrc`）。先验证解释器，再安装依赖及执行命令；不要使用其他系统版本。以下从仓库根目录开始：
 
 ```bash
-docker compose build backend && docker compose up backend
-# 另一个终端
-docker compose build frontend && docker compose up frontend
+uv python find 3.12
+uv sync --directory backend --python 3.12 --locked --extra dev --extra research --extra inference
+backend/.venv/bin/python --version
+cp .env.example .env
+backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-也可 `docker compose up --build` 同时启动。backend 与 frontend 使用各自 Dockerfile，可独立构建/部署。
-
-## 预构建镜像部署
-
-可在构建环境预先生成镜像并导出，在部署环境导入后启动。Compose 使用固定镜像名：
+首次运行前，按[数据库说明](docs/database/README.md)准备数据与账号。另开终端运行前端：
 
 ```bash
-docker compose build
-docker save -o corn-insurance-images.tar corn-insurance-backend:latest corn-insurance-frontend:latest
+source ~/.nvm/nvm.sh
+cd frontend
+nvm use
+node --version
+npm ci
+npm run dev
 ```
 
-将镜像包和 `docker-compose.yml` 放到部署环境，在项目目录导入并启动：
+浏览器访问 `http://127.0.0.1:5173/#decision`；后端接口文档为 `http://127.0.0.1:8000/docs`。VS Code已有本地联合调试配置；其环境文件仍为被Git忽略的根目录`.env`。
+
+## 数据库、账号与数据准备
+
+平台支持MySQL 8.0，提供[39张表DDL](docs/database/001_schema_mysql.sql)、[4373条公共初始化数据](docs/database/002_seed_mysql.sql)及[清单](docs/database/seed-manifest.json)。有权限的数据库所有者执行DDL，应用账号执行DML。幂等种子保留已有记录，不重置工作区或已办业务。公共DML不包含用户、口令哈希、盐、会话或有效凭据。
+
+实际连接仅写入本地`.env`的`PLATFORM_DATABASE_URL`。业务、研究与账号统一使用MySQL，连接配置为必填；未配置时启动报错，不创建任何本地业务数据库。账号由私有DML插入，登录仅读取已有用户，不自动创建或恢复账号。
+
+需要新增实际用户时，在已验证的Python3.12环境生成私有DML：
 
 ```bash
-docker load -i corn-insurance-images.tar
-docker compose up -d --no-build
+backend/.venv/bin/python --version
+backend/.venv/bin/python backend/tools/generate_user_dml.py --username "<实际登录名>" --name "<姓名>" --role operator --output docs/database/private/003_user.sql
 ```
 
-部署环境需要Docker Compose和数据目录：将`var/market`、`var/comparison`、`var/models`及`var/price`一起复制到服务器，或解压最新演示数据包。Compose默认以只读方式挂载`./var:/data`，无需UQER token。也可用`DEMO_DATA_DIR`指定目录。`pull_policy: never`使用本地已导入镜像；构建与部署的CPU架构需兼容。完整步骤见[离线数据与部署](docs/demo-next/离线数据与部署.md)。
+工具交互输入密码，仅生成含随机盐和PBKDF2哈希的INSERT脚本，不连接数据库，不执行账号创建，也不读取密码环境变量。指定实际用户名，角色可选`operator`、`reviewer`、`customer`；角色不等于登录名，不提供内置账号。管理员审核后在目标MySQL库执行私有DML；重复用户名或编号直接失败，不覆盖已有账号。关联既有业务身份时可指定`--user-id`，保持用户ID与业务责任一致。`docs/database/private/`不进入Git；密码不写入明文SQL、命令或文档。
 
-## VS Code 一键本地启动
+退出登录撤销当前服务端会话。单元测试仅在测试目录注入隔离SQL替身及临时数据，不通过应用配置创建账号，也不连接共享MySQL。
 
-1. 在项目根目录准备`.env`（首次可复制`.env.example`），已有数据使用`DATA_PROVIDER=parquet`，无数据可用`auto`。网页运行不需要令牌；`.env`已被Git忽略。
-2. 按上面的本地开发步骤使用 `uv sync --extra dev --extra inference` 创建 `backend/.venv` 并安装依赖；在 `frontend` 的Node22环境执行 `npm ci`。
-3. 用 VS Code 打开项目根目录，安装 Python/Python Debugger 扩展；在“运行和调试”选择 **Corn Risk Demo: Local Development**，按 F5 同时启动前后端。
+已校验历史行情、公开供需快照与预置业务数据分别保留来源。行情截至2026年10月23日；天气、灾害概率及部分供需贸易、政策为截至10月29日的预置记录，不代表真实灾害模型已生产运行。外部出单、交易和支付目前采用本地回执适配；界面可正常办理，接口与导出保留执行元数据，正式通道需联调。
 
-前端：`http://127.0.0.1:5173`；后端：`http://127.0.0.1:8000/docs`。调试配置从根目录 `.env` 注入后端环境变量；不要把 `.env` 提交到 Git。
+MySQL可以使用公共DML浏览现有态势与历史案例；运行研究、重新生成行情或采价需要配套的本地Parquet与模型数据。这些大文件不进入Git，部署应另外交付校验过的数据包。离线采集与容器步骤见[离线数据与部署](docs/demo-next/离线数据与部署.md)。
 
-## 离线 UQER 与 Parquet
+## 四模块业务流程
 
-UQER仅用于显式离线取数命令`python -m research.ingest`，按请求身份缓存Parquet与SHA256校验信息；已缓存请求不再调用SDK，`--offline`模式可在无token环境重新整理快照。行情使用具体合约的`settlePrice`，不拼接连续合约或以收盘价替代。研究命令`python -m research.run`仅消费快照。以上命令均在已验证的Python3.12虚拟环境运行，安装及完整路径见[离线数据与部署](docs/demo-next/离线数据与部署.md)。旧`DATA_PROVIDER=uqer`仅兼容映射到缓存读取，不再在线取数。
+1. **投保与保单**：逐户申请或批量预览 → 资料 / 条款确认 → 复核核保 → 保费回执 → 出单请求及查单 → 责任版本与批改。核保通过不等于确认出单。
+2. **数据与研究**：浏览来源、单位和可得时点 → 冻结数据 → 配置受控因子及时间切分 → 运行注册模型与基线 → 保存版本报告并引用。每次最多2500条观察、6个因子。
+3. **风险转移与组合**：核对毛责任、分出和自留 → 关联比例再保 → 场外看跌方案、报价和复核 → 提交委托及分批确认 → 按实际确认合同匹配保单。未知回报保留预占。
+4. **结算与赔付**：按约定观察窗口采价并锁定 → 规则额、人工核定、复核批准 → 生成应付 → 付款复核及部分 / 未知回执 → 风险回收与对账。客户赔付不等待再保或对冲回款。
 
-## Demo 路径与业务边界
+天气和政策支持人工判断，不直接触发价格保险赔付。产品合同规则以业务方确认版本为准；保险资金的股票、基金投资管理不属于本期范围。
 
-1. 切换四类角色，查看个人保单、合作社成员、保险机构承保与理赔、农业管理部门区域项目。业务台账使用关联的 Mock 数据，首页指标由台账汇总。
-2. 农户提交模拟理赔申请，保险机构审核并模拟支付；各角色赔付统计同步更新。合作社可为未参保成员建立模拟保单，管理部门可查看覆盖情况、模拟拨付补贴。
-3. 台账支持搜索、状态/地区筛选、详情和 CSV 导出。模拟操作保存在本机浏览器，刷新保留，可确认重置。
-4. 从保单详情带入试算，或在独立试算页调整保障价、情景价、免赔额、数量与上限；各角色分别保留会话输入，试算不修改台账。
-5. 行情和参考估计位于辅助页面。农业管理部门首页以覆盖率、补贴执行、赔付兑现及项目跟进为核心。
-6. 保险机构“模型评估”提供固定历史合同、三方法对照、验证报告及JSON/CSV导出。研究标签来自历史结算价与规则，不是真实赔案；当前不足一年数据，仅作研究，不宣布生产模型或已验证P90。
-7. 保险机构“玉米行情”支持合约切换及20日平均结算价预测；点击“带入客户风险分析”进入研究合同、风险与压力、业务判断、承保方案、赔付试算、分析报告六步向导。业务人员记录参考方法、风险限额和判断依据，接受后确认方案并按同一组条款试算；调整或拒绝承保分别进入对应分支。保存的模型在可信只读挂载目录中校验后加载，网页不训练、不取外部数据。未来价格参照与历史合同回放的日期明确分开。
+## 验证与提交
 
-角色切换仅为演示，不构成身份认证或数据权限隔离。
+后端单元测试通过测试目录中的隔离SQL替身验证流程，不连接共享MySQL；MySQL接入需另外执行专用环境集成验收。在backend目录用已验证解释器运行：
 
-示例公式：`赔付 = min(max(保障价 - 结算价 - 每吨免赔额, 0) × 承保吨数, 赔付上限)`。这只是演示规则；实际实现必须遵循合同规定的价格来源、基差、触发、费率、赔付上限和结算日。期货价不等于保单结算价，预测不等于实际赔付，演示模型不用于投保决策。
+```bash
+.venv/bin/python --version
+.venv/bin/python -m ruff format --check app research tests tools
+.venv/bin/python -m ruff check app research tests tools
+.venv/bin/python -m pytest -q
+```
 
-## 架构
+前端在Node22环境运行`npm run build`。浏览器验收使用已有用户，通过`PLATFORM_TEST_OPERATOR_USERNAME`、`PLATFORM_TEST_REVIEWER_USERNAME`、`PLATFORM_TEST_CUSTOMER_USERNAME`指定各岗位实际登录名，通过`PLATFORM_TEST_PASSWORD`传入验收凭据：`npm run test:decision`为只读页面验收，`npm run test:platform`为业务全链路，`npm run test:review`为本次回归。完整写入测试必须指向独立MySQL验收实例，并显式设置`PLATFORM_TEST_ALLOW_WRITES=isolated`确认环境；禁止对共享业务实例运行。用`APP_URL`、`API_URL`指定验收服务，`BROWSER_EXECUTABLE`可指定Chromium。
 
-- `backend/app/api`: HTTP 路由与请求 schema
-- `backend/app/domain`: 不依赖框架的保险领域计算
-- `backend/app/services`: 用例编排
-- `backend/app/adapters`: Parquet快照和显式模拟行情适配层
-- `backend/app/repositories`: 校验后读取行情快照和不可变比较报告
-- `backend/research`: 离线取数、标签、时间切分、训练、评价与发布
-- `frontend`: Vue 3 + TypeScript + Vite 单页应用
-- `docs`: 系统架构和后续迭代路线
+提交前从仓库根目录运行 `backend/.venv/bin/python backend/tools/check_submission.py` 扫描暂存内容，`--working-tree`可检查工作区候选；扫描包括Word和PDF。不提交`.env`、私钥、业务数据库、内部调研或账号初始化数据。请在独立开发分支完成检查与代码审查后提交；推送和创建PR按团队安排。
+
+## 部署与架构
+
+前端Vue3＋TypeScript，后端FastAPI；`backend/app/platform`集中处理身份、业务状态、事务持久化和保险业务研究。业务聚合、查询投影和幂等回执同MySQL事务写入，不能通过单独修改投影表办理业务。[业务接口契约](backend/app/platform/CONTRACT.md)和[决策支持契约](docs/contracts/decision-v1.md)说明字段和状态。
+
+`docker compose up --build`可构建并启动，前端5173、后端8000。Compose将本地`var`只读挂载为行情和模型目录，业务与研究状态存入MySQL；MySQL连接地址必须从容器可达，不能复用宿主机环回隧道。生产环境应配置数据授权、身份、真实外部适配、备份恢复、监控及容量验收。
